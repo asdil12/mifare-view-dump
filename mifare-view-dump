@@ -1,0 +1,113 @@
+#!/usr/bin/python2
+
+import argparse
+import texttable
+
+# enum:
+F =  '---'
+A =  ' A '
+B =  ' B '
+AB = 'A/B'
+
+data_acl = {
+	# (C1, C2, C3): (read, write, increment, decrement)
+	(0, 0, 0): (AB, AB, AB, AB),
+	(0, 0, 1): (AB,  F,  F, AB),
+	(0, 1, 0): (AB,  F,  F,  F),
+	(0, 1, 1): ( B,  B,  F,  F),
+	(1, 0, 0): (AB,  B,  F,  F),
+	(1, 0, 1): ( B,  F,  F,  F),
+	(1, 1, 0): (AB,  B,  B, AB),
+	(1, 1, 1): ( F,  F,  F,  F),
+}
+
+trail_acl = {
+	# (C1, C2, C3): (key_a(r, w), acl_bits(r, w), key_b(r, w))
+	(0, 0, 0): (( F,  A), ( A,  F), ( A,  A)),
+	(0, 0, 1): (( F,  A), ( A,  A), ( A,  A)),
+	(0, 1, 0): (( F,  F), ( A,  F), ( A,  F)),
+	(0, 1, 1): (( F,  B), (AB,  B), ( F,  B)),
+	(1, 0, 0): (( F,  B), (AB,  F), ( F,  B)),
+	(1, 0, 1): (( F,  F), (AB,  B), ( F,  F)),
+	(1, 1, 0): (( F,  F), (AB,  F), ( F,  F)),
+	(1, 1, 1): (( F,  F), (AB,  F), ( F,  F)),
+}
+
+def get_bit(byt, bit):
+	return bool(byt & (1 << bit))
+
+def hex_value(lst, start=0, size=0):
+	if start:
+		lst = lst[start:]
+	if size:
+		rest = 16 - (start + size)
+		if rest:
+			lst = lst[:-rest]
+	else:
+		rest = 0
+	out = ""
+	out += " " * (start * 3)
+	out += " ".join(["%02X" % c for c in lst])
+	out += " " * (rest * 2 + rest - 1)
+	return out
+
+def read_sector(dump, sector):
+	blocks = []
+	firstblock = sector * 4
+	for i in range(0, 4):
+		blockstart = (firstblock + i) * 16
+		blocks.append(dump[blockstart:blockstart+16])
+
+	aclbits = [
+		[], [], [], []
+	]
+
+	# C1
+	for i in range(0, 4):
+		aclbits[i].append(get_bit(blocks[3][7], i+4))
+
+	# C2
+	for i in range(0, 4):
+		aclbits[i].append(get_bit(blocks[3][8], i))
+
+	# C3
+	for i in range(0, 4):
+		aclbits[i].append(get_bit(blocks[3][8], i+4))
+
+	for i in range(0, 3):
+		bits = aclbits[i]
+		dacl = data_acl[tuple(bits)]
+		block = firstblock + i
+		row = [block, "Data"]
+		row.extend(dacl)
+		row.append(hex_value(blocks[i]))
+		dtbl.add_row(row)
+
+	aclsect = [
+		{'start':  0, 'size': 6},
+		{'start':  6, 'size': 3},
+		{'start': 10, 'size': 6},
+	]
+	for i, section in enumerate(["Key A", "ACL", "Key B"]):
+		bits = aclbits[3]
+		dacl = trail_acl[tuple(bits)][i]
+		row = [(firstblock + 3), section]
+		row.extend(dacl)
+		row.extend([F, F])
+		row.append(hex_value(blocks[3], **aclsect[i]))
+		dtbl.add_row(row)
+
+
+
+if __name__ == '__main__':
+	parser = argparse.ArgumentParser(description='Mifare Classic dump viewer')
+	parser.add_argument('dumpfile', metavar='dumpfile', nargs=1, help='Dumpfile of the Mifare Card')
+	args = parser.parse_args()
+	dtbl = texttable.Texttable()
+	dtbl.set_cols_align(['c', 'c', 'c', 'c', 'c', 'c', 'l'])
+	dtbl.set_cols_width([5, 7, 4, 5, 9, 9, 47])
+	dtbl.header(["Block", "Section", "Read", "Write", "Increment", "Decrement", "Value"])
+	dump = [ord(c) for c in open(args.dumpfile[0]).read()]
+	for s in range(0, 16):
+		read_sector(dump, s)
+	print dtbl.draw()
