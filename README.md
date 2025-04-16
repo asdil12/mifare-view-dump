@@ -1,3 +1,6 @@
+> [!WARNING]
+> Moved to https://codeberg.org/asdil12/mifare-view-dump
+
 # mifare-view-dump
 
 This tool will help you to inspect a dump of a Mifare Classic Card.
